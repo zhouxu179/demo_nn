@@ -15,8 +15,8 @@ from minpy.nn.solver import Solver
 from data_utils import get_CIFAR10_data
 
 # Please uncomment following if you have GPU-enabled MXNet installed.
-from minpy.context import set_context, gpu
-set_context(gpu(0)) # set the global context as gpu(0)
+#from minpy.context import set_context, gpu
+#set_context(gpu(0)) # set the global context as gpu(0)
 
 batch_size=128
 input_size=(3, 32, 32)
@@ -87,10 +87,10 @@ def main(args):
                         'stdvar': 0.001
                     },
                     #update_rule='sgd_momentum',
-	            update_rule='rmsprop',
+	            update_rule='adam',
                     optim_config={
-                        'learning_rate': 1e-3,
-                        'decay_rate': 0.99
+                        'learning_rate': 1e-4,
+                        'momentum': 0.9
                     },
                     verbose=True,
                     print_every=20)

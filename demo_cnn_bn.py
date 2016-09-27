@@ -1,4 +1,4 @@
-"""Convolution Neural Network example with both MinPy ndarray and MXNet symbol."""
+"""Convolution Neural Network with batch normalization"""
 import sys
 import argparse
 
@@ -21,23 +21,58 @@ set_context(gpu(0)) # set the global context as gpu(0)
 batch_size=128
 input_size=(3, 32, 32)
 flattened_input_size=3 * 32 * 32
-hidden_size=512
+hidden_size=1024
 num_classes=10
 reg = 0.001
+nfilter = 128
+ks = (5,5)
+nepo = 8
+learning_rate = 2e-4
 class ConvolutionNet(ModelBase):
     def __init__(self):
         super(ConvolutionNet, self).__init__()
         # Define symbols that using convolution and max pooling to extract better features
         # from input image.
         net = mx.sym.Variable(name='X')
+        
         net = mx.sym.Convolution(
-                data=net, name='conv', kernel=(7, 7), num_filter=32)
+                data=net, name='conv1', kernel=ks, num_filter=nfilter)
         net = mx.sym.Activation(
                 data=net, act_type='relu')
         net = mx.sym.Pooling(
+                data=net, name='pool1', pool_type='max', kernel=(2, 2),
+                stride=(2, 2))
+        net = mx.sym.Convolution(
+                data=net, name='conv2', kernel=ks, num_filter=nfilter)
+        net = mx.sym.Activation(
+                data=net, act_type='relu')
+        
+        net = mx.sym.Pooling(
+                data=net, name='pool2', pool_type='max', kernel=(2, 2),
+                stride=(2, 2))
+        
+        """
+        net = mx.sym.Convolution(
+                data=net, name='conv3', kernel=ks, num_filter=nfilter)
+        net = mx.sym.Activation(
+                data=net, act_type='relu')
+        net = mx.sym.Convolution(
+                data=net, name='conv4', kernel=ks, num_filter=nfilter)
+        net = mx.sym.Activation(
+                data=net, act_type='relu')
+        """
+        """
+        net = mx.sym.Convolution(
+                data=net, name='conv5', kernel=ks, num_filter=nfilter)
+        net = mx.sym.Activation(
+                data=net, act_type='relu')
+        
+        net = mx.sym.Pooling(
                 data=net, name='pool', pool_type='max', kernel=(2, 2),
                 stride=(2, 2))
+        """
         net = mx.sym.Flatten(data=net)
+        
         # Create forward function and add parameters to this model.
         self.conv = Function(
                 net, input_shapes={'X': (batch_size,) + input_size},
@@ -48,18 +83,22 @@ class ConvolutionNet(ModelBase):
         conv_out_size = output_shape[1]
         self.add_param(name='w1', shape=(conv_out_size, hidden_size)) \
             .add_param(name='b1', shape=(hidden_size,)) \
+            .add_param(name='gamma1', shape=(hidden_size,)) \
+            .add_param(name='beta1', shape=(hidden_size,)) \
             .add_param(name='w2', shape=(hidden_size, num_classes)) \
             .add_param(name='b2', shape=(num_classes,))
-
+           # .add_param(name='w3', shape=(hidden_size, num_classes)) \
+           # .add_param(name='b3', shape=(num_classes,))\
     def forward(self, X, mode):
         out = self.conv(X=X, **self.params)
         out = layers.affine(out, self.params['w1'], self.params['b1'])
+        #out = layers.batchnorm(out, self.params['gamma1'], self.params['beta1'])
         out = layers.relu(out)
         out = layers.affine(out, self.params['w2'], self.params['b2'])
         return out
 
     def loss(self, predict, y):
-	loss_reg = 0
+	loss_reg = reg
 	for name, weight in self.params.iteritems():
     	    loss_reg += np.sum(weight**2)
         return layers.softmax_loss(predict, y) + 0.5*reg*loss_reg
@@ -81,19 +120,19 @@ def main(args):
     solver = Solver(model,
                     train_dataiter,
                     test_dataiter,
-                    num_epochs=15,
+                    num_epochs=nepo,
                     init_rule='gaussian',
                     init_config={
                         'stdvar': 0.001
                     },
                     #update_rule='sgd_momentum',
-	            update_rule='rmsprop',
+	            #update_rule='rmsprop',
+                    update_rule ='adam',
                     optim_config={
-                        'learning_rate': 1e-3,
-                        'decay_rate': 0.99
+                        'learning_rate': learning_rate
                     },
                     verbose=True,
-                    print_every=20)
+                    print_every=40)
     # Initialize model parameters.
     solver.init()
     # Train!
