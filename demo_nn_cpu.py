@@ -1,4 +1,4 @@
-"""Convolution Neural Network example with both MinPy ndarray and MXNet symbol."""
+"""Convolution Neural Network with batch normalization"""
 import sys
 import argparse
 
@@ -21,23 +21,42 @@ from data_utils import get_CIFAR10_data
 batch_size=128
 input_size=(3, 32, 32)
 flattened_input_size=3 * 32 * 32
-hidden_size=512
+hidden_size=1024
 num_classes=10
 reg = 0.001
+nfilter = 128
+ks = (5,5)
+nepo = 5
+learning_rate = 2e-4
+bn = True
+
+
 class ConvolutionNet(ModelBase):
     def __init__(self):
         super(ConvolutionNet, self).__init__()
         # Define symbols that using convolution and max pooling to extract better features
         # from input image.
         net = mx.sym.Variable(name='X')
+        
         net = mx.sym.Convolution(
-                data=net, name='conv', kernel=(7, 7), num_filter=32)
+                data=net, name='conv1', kernel=ks, num_filter=nfilter)
+        net = mx.symbol.BatchNorm(data=net, name='bn1')
         net = mx.sym.Activation(
                 data=net, act_type='relu')
         net = mx.sym.Pooling(
-                data=net, name='pool', pool_type='max', kernel=(2, 2),
+                data=net, name='pool1', pool_type='max', kernel=(2, 2),
+                stride=(2, 2))
+        net = mx.sym.Convolution(
+                data=net, name='conv2', kernel=ks, num_filter=nfilter)
+        net = mx.symbol.BatchNorm(data=net, name='bn2')
+        net = mx.sym.Activation(
+                data=net, act_type='relu')
+        
+        net = mx.sym.Pooling(
+                data=net, name='pool2', pool_type='max', kernel=(2, 2),
                 stride=(2, 2))
         net = mx.sym.Flatten(data=net)
+        
         # Create forward function and add parameters to this model.
         self.conv = Function(
                 net, input_shapes={'X': (batch_size,) + input_size},
@@ -49,17 +68,26 @@ class ConvolutionNet(ModelBase):
         self.add_param(name='w1', shape=(conv_out_size, hidden_size)) \
             .add_param(name='b1', shape=(hidden_size,)) \
             .add_param(name='w2', shape=(hidden_size, num_classes)) \
-            .add_param(name='b2', shape=(num_classes,))
+            .add_param(name='b2', shape=(num_classes,))\
+            .add_aux_param(name='running_mean', value=None) \
+            .add_aux_param(name='running_var', value=None)\
+            .add_param(name='gamma1', shape=(hidden_size,), init_rule='constant', init_config={'value': 1.0}) \
+            .add_param(name='beta1', shape=(hidden_size,), init_rule='constant') 
 
     def forward(self, X, mode):
         out = self.conv(X=X, **self.params)
         out = layers.affine(out, self.params['w1'], self.params['b1'])
+       
+        out, self.aux_params['running_mean'], self.aux_params['running_var'] = layers.batchnorm(\
+            out, self.params['gamma1'], self.params['beta1'], running_mean=self.aux_params['running_mean'],\
+            running_var=self.aux_params['running_var'])
+       
         out = layers.relu(out)
         out = layers.affine(out, self.params['w2'], self.params['b2'])
         return out
 
     def loss(self, predict, y):
-	loss_reg = 0
+	loss_reg = reg
 	for name, weight in self.params.iteritems():
     	    loss_reg += np.sum(weight**2)
         return layers.softmax_loss(predict, y) + 0.5*reg*loss_reg
@@ -81,19 +109,19 @@ def main(args):
     solver = Solver(model,
                     train_dataiter,
                     test_dataiter,
-                    num_epochs=15,
+                    num_epochs=nepo,
                     init_rule='gaussian',
                     init_config={
                         'stdvar': 0.001
                     },
                     #update_rule='sgd_momentum',
-	            update_rule='adam',
+	            #update_rule='rmsprop',
+                    update_rule ='adam',
                     optim_config={
-                        'learning_rate': 1e-4,
-                        'momentum': 0.9
+                        'learning_rate': learning_rate
                     },
                     verbose=True,
-                    print_every=20)
+                    print_every=40)
     # Initialize model parameters.
     solver.init()
     # Train!
