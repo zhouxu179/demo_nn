@@ -26,8 +26,11 @@ num_classes=10
 reg = 0.001
 nfilter = 128
 ks = (5,5)
-nepo = 8
+nepo = 5
 learning_rate = 2e-4
+bn = True
+
+
 class ConvolutionNet(ModelBase):
     def __init__(self):
         super(ConvolutionNet, self).__init__()
@@ -37,6 +40,7 @@ class ConvolutionNet(ModelBase):
         
         net = mx.sym.Convolution(
                 data=net, name='conv1', kernel=ks, num_filter=nfilter)
+        net = mx.symbol.BatchNorm(data=net, name='bn1')
         net = mx.sym.Activation(
                 data=net, act_type='relu')
         net = mx.sym.Pooling(
@@ -44,33 +48,13 @@ class ConvolutionNet(ModelBase):
                 stride=(2, 2))
         net = mx.sym.Convolution(
                 data=net, name='conv2', kernel=ks, num_filter=nfilter)
+        net = mx.symbol.BatchNorm(data=net, name='bn2')
         net = mx.sym.Activation(
                 data=net, act_type='relu')
         
         net = mx.sym.Pooling(
                 data=net, name='pool2', pool_type='max', kernel=(2, 2),
                 stride=(2, 2))
-        
-        """
-        net = mx.sym.Convolution(
-                data=net, name='conv3', kernel=ks, num_filter=nfilter)
-        net = mx.sym.Activation(
-                data=net, act_type='relu')
-        net = mx.sym.Convolution(
-                data=net, name='conv4', kernel=ks, num_filter=nfilter)
-        net = mx.sym.Activation(
-                data=net, act_type='relu')
-        """
-        """
-        net = mx.sym.Convolution(
-                data=net, name='conv5', kernel=ks, num_filter=nfilter)
-        net = mx.sym.Activation(
-                data=net, act_type='relu')
-        
-        net = mx.sym.Pooling(
-                data=net, name='pool', pool_type='max', kernel=(2, 2),
-                stride=(2, 2))
-        """
         net = mx.sym.Flatten(data=net)
         
         # Create forward function and add parameters to this model.
@@ -83,16 +67,21 @@ class ConvolutionNet(ModelBase):
         conv_out_size = output_shape[1]
         self.add_param(name='w1', shape=(conv_out_size, hidden_size)) \
             .add_param(name='b1', shape=(hidden_size,)) \
-            .add_param(name='gamma1', shape=(hidden_size,)) \
-            .add_param(name='beta1', shape=(hidden_size,)) \
             .add_param(name='w2', shape=(hidden_size, num_classes)) \
-            .add_param(name='b2', shape=(num_classes,))
-           # .add_param(name='w3', shape=(hidden_size, num_classes)) \
-           # .add_param(name='b3', shape=(num_classes,))\
+            .add_param(name='b2', shape=(num_classes,))\
+            .add_aux_param(name='running_mean', value=None) \
+            .add_aux_param(name='running_var', value=None)\
+            .add_param(name='gamma1', shape=(hidden_size,), init_rule='constant', init_config={'value': 1.0}) \
+            .add_param(name='beta1', shape=(hidden_size,), init_rule='constant') 
+
     def forward(self, X, mode):
         out = self.conv(X=X, **self.params)
         out = layers.affine(out, self.params['w1'], self.params['b1'])
-        #out = layers.batchnorm(out, self.params['gamma1'], self.params['beta1'])
+       
+        out, self.aux_params['running_mean'], self.aux_params['running_var'] = layers.batchnorm(\
+            out, self.params['gamma1'], self.params['beta1'], running_mean=self.aux_params['running_mean'],\
+            running_var=self.aux_params['running_var'])
+       
         out = layers.relu(out)
         out = layers.affine(out, self.params['w2'], self.params['b2'])
         return out
